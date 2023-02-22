@@ -77,20 +77,16 @@ class Line:
             b2 = y3 - a2 * x3
             if a1 == a2:  # parallel
                 if b1 == b2:  # same line
-                    line1, line2 = (self, other) if min(self.pos1[0], self.pos2[0]) \
-                                                    <= min(other.pos1[0], other.pos2[0]) else (other, self)
+                    line1, line2 = (self, other) if x1 <= x2 else (other, self)
                     if min(line2.pos1[0], line2.pos2[0]) <= max(line1.pos1[0], line1.pos2[0]):
-                        return True, (a1, b1), (a2, b2)
+                        x = min(line2.pos1[0], line2.pos2[0])
+                        y = a1 * x + b1
+                        return (x, y), (a1, b1), (a2, b2)
                 return None
             else:  # intersect
                 x = (b2 - b1) / (a1 - a2)
                 y = a1 * x + b1
-                if min(self.pos1[0], self.pos2[0]) <= x <= max(self.pos1[0], self.pos2[0]) \
-                        and min(other.pos1[0], other.pos2[0]) <= x <= max(other.pos1[0], other.pos2[0]) \
-                        and min(self.pos1[1], self.pos2[1]) <= y <= max(self.pos1[1], self.pos2[1]) \
-                        and min(other.pos1[1], other.pos2[1]) <= y <= max(other.pos1[1], other.pos2[1]):
-                    print("true", x, y)
-                    pygame.draw.circle(screen, (0, 0, 255), (x, y), 3, 3)
+                if x1 <= x <= x2 and x3 <= x <= x4 and y1 <= y <= y2 and y3 <= y <= y4:
                     return (x, y), (a1, b1), (a2, b2)
                 return None
 
@@ -235,27 +231,24 @@ LinearObject.objects: list[LinearObject] = []
 pygame.init()
 
 size = 1080, 720
-# size = 1920, 1080
 
 screen = pygame.display.set_mode(size)
 clock = pygame.time.Clock()
-fps = 200
-# fps = 15
+fps = 100
 
 ball = pygame.image.load("ball.png").convert_alpha()
 ball = pygame.transform.rotozoom(ball, 0, 0.25)  # rotate: 0°, scale: x0.25
 
-# gravity = 10
-friction = 0.002  # 0.005  # 0.1 = 10% friction
+friction = 0.005  # 0.1 = 10% friction
 
 position = 0, 0
 velocity = 200, 200
 position = 350, 300
-velocity = -400, -400
+velocity = -300, -300
 # position = 350, 235
 # velocity = -200, 200
 
-LinearObject((300, 200), (800, 200), (800, 390), (300, 400)).register()
+LinearObject((300, 200), (800, 200), (800, 400), (300, 400)).register()
 
 
 def tick():
@@ -269,85 +262,45 @@ def tick():
 
     back = position[:]
 
+    # Damping with friction
     velocity = velocity[0] * (1 - friction), velocity[1] * (1 - friction)
-    tempo_velocity = velocity[0] / 100, velocity[1] / 100
+    tempo_velocity = velocity[0] / (fps / 2), velocity[1] / (fps / 2)
+
     position = position[0] + tempo_velocity[0], position[1] + tempo_velocity[1]
 
     if Utils.get_magnitude(velocity) < 0.5:
         velocity = 0, 0
-
-    aa = None
-
 
     collider = LinearObject.create_regular_polygon(position, 17, 6, math.pi / 6)
     if velocity[0] != 0:
         for obj in LinearObject.objects:
             if (i := collider.get_intersection_with(obj)) is not None:
                 position = back
-                inter = i[0][0]
-                # alpha = velocity[1] / velocity[0]
-                # a = Utils.get_angle_by_coef(alpha, None if i[0][2] is None else i[0][2][0])
-                # aa = a
-                vel_prolong = inter[0] + velocity[0], inter[1] + velocity[1]
-                line_prolong = (i[0][0][0], 0) if i[0][2] is None else (0, i[0][2][1])
-                relative_vel_prolong = vel_prolong[0] - inter[0], vel_prolong[1] - inter[1]
-                relative_line_prolong = line_prolong[0] - inter[0], line_prolong[1] - inter[1]
-                direction = -1 if relative_vel_prolong[0] * relative_line_prolong[1] \
-                                 - relative_vel_prolong[1] * relative_line_prolong[0] > 0 else 1
-                direction *= -1 if i[0][2] is not None and i[0][2][0] == 0 else 1
 
-                a = Utils.get_angle_between(inter, line_prolong, vel_prolong) % (2 * math.pi)
-                # if a > math.pi:
-                #     a -= 2 * math.pi
+                # Matrix:      Q = [[cos a, sin a], [-sin a, cos a]]
+                # Matrix: Q^(-1) = [[cos a, -sin a], [sin a, cos a]]
+                # Transformation: P = [[1, 0], [0, -1]] ->> reflection on the x-axis
+                # reflection = Q * velocity * P * Q^(-1)
 
-                aa = a
+                # angle of linear function = arctan( multiplier )
+                a = (math.pi / 2) if i[0][2] is None else math.atan(i[0][2][0])
 
-                if a == 0 or Utils.are_close(a, math.pi) or Utils.are_close(a, -math.pi) \
-                        or Utils.are_close(a, math.pi / 2) or Utils.are_close(a, -math.pi / 2):
-                    print("a")
-                    a = a + direction * math.pi / 2
-                else:
-                    print("b", direction, a / math.pi, (math.pi - a * 2) / math.pi, relative_vel_prolong[0] * relative_line_prolong[1] \
-                                 - relative_vel_prolong[1] * relative_line_prolong[0])
-                    a = a + direction * (math.pi - a * 2 + (2 * (a % math.pi) if a > math.pi else 0))
-                    print("c", a / math.pi)
-                velocity = math.cos(a) * Utils.get_magnitude(velocity), math.sin(a) * Utils.get_magnitude(velocity)
+                # Q * velocity = (vx * cos a + vy * sin a, -vx * sin a + vy * cos a)
+                relative_velocity = velocity[0] * math.cos(a) + velocity[1] * math.sin(a), \
+                                    -velocity[0] * math.sin(a) + velocity[1] * math.cos(a)
 
-    if aa is not None:
-        print(velocity)
+                # relative_velocity * P => (vx, -vy)
+                relative_velocity = relative_velocity[0], -relative_velocity[1]
 
-            # position = i[2].get_near(position)
-            # while collider.get_intersection_with(obj):
-            #     position = position[0] + (1 if position[0] < back[0] else -1 if position[0] > back[0] else 0), \
-            #                position[1] + (1 if position[1] < back[1] else -1 if position[1] > back[1] else 0)
-            #     collider = LinearObject.create_regular_polygon(position, 17, 6, math.pi / 6)
-            # # future = i[2].get_near(position)
-            # # relative = collider.get_relative(i[0])  # (px + relative[0], py + relative[1])
-            # # position = future[0] + relative[0] - collider.get_size()[0], future[1] + relative[1] - collider.get_size()[1]
-            # # pygame.draw.circle(screen, (0, 255, 255), future, 5, 5)
-            # # collider = LinearObject.create_regular_polygon(position, 17, 10, math.pi / 6)
-            # break
+                # reflection = relative_velocity * Q^(-1)
+                velocity = relative_velocity[0] * math.cos(a) - relative_velocity[1] * math.sin(a), \
+                           relative_velocity[0] * math.sin(a) + relative_velocity[1] * math.cos(a)
 
-        # for line in obj.lines:
-        #     if p := line.get_near((px, py)):
-        #         if d := math.sqrt((p[0] - px) ** 2 + (p[1] - py) ** 2) < distance:
-        #             distance, pos = d, p
-
-    # if any(collider.does_intersect_with(obj) for obj in LinearObject.objects):
-    #     velocity = 0, 0
-    #     # position = back
-    #     distance, pos = 999_999_999, (0, 0)
-    #     for obj in LinearObject.objects:
-    #         for line in obj.lines:
-    #             if p := line.get_near((px, py)):
-    #                 if d := math.sqrt((p[0] - px) ** 2 + (p[1] - py) ** 2) < distance:
-    #                     distance, pos = d, p
-    #     position = pos[0] - ball.get_rect().size[0] // 2, \
-    #                pos[1] - ball.get_rect().size[1] // 2
+    print(velocity)
 
     # --- Drawing ---
 
-    # screen.fill((0, 0, 0))
+    screen.fill((0, 0, 0))
 
     screen.blit(ball, (position[0] - ball.get_rect().size[0] // 2,
                        position[1] - ball.get_rect().size[1] // 2))
