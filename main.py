@@ -234,19 +234,15 @@ size = 1080, 720
 
 screen = pygame.display.set_mode(size)
 clock = pygame.time.Clock()
-fps = 100
+fps = 200
 
 ball = pygame.image.load("ball.png").convert_alpha()
 ball = pygame.transform.rotozoom(ball, 0, 0.25)  # rotate: 0°, scale: x0.25
 
-friction = 0.005  # 0.1 = 10% friction
+friction = 0.5
 
-position = 0, 0
-velocity = 200, 200
 position = 350, 300
-velocity = -300, -300
-# position = 350, 235
-# velocity = -200, 200
+velocity = -200, 250
 
 LinearObject((300, 200), (800, 200), (800, 400), (300, 400)).register()
 
@@ -263,12 +259,12 @@ def tick():
     back = position[:]
 
     # Damping with friction
-    velocity = velocity[0] * (1 - friction), velocity[1] * (1 - friction)
-    tempo_velocity = velocity[0] / (fps / 2), velocity[1] / (fps / 2)
+    velocity = velocity[0] * (1 - friction / fps), velocity[1] * (1 - friction / fps)
+    tempo_velocity = velocity[0] / 100, velocity[1] / 100
 
     position = position[0] + tempo_velocity[0], position[1] + tempo_velocity[1]
 
-    if Utils.get_magnitude(velocity) < 0.5:
+    if Utils.get_magnitude(velocity) < 3:
         velocity = 0, 0
 
     collider = LinearObject.create_regular_polygon(position, 17, 6, math.pi / 6)
@@ -296,7 +292,7 @@ def tick():
                 velocity = relative_velocity[0] * math.cos(a) - relative_velocity[1] * math.sin(a), \
                            relative_velocity[0] * math.sin(a) + relative_velocity[1] * math.cos(a)
 
-    print(velocity)
+    print(velocity, clock.get_fps())
 
     # --- Drawing ---
 
@@ -308,11 +304,11 @@ def tick():
     LinearObject.objects[0].draw(screen, (0, 255, 255), 2)
     # collider.draw(screen, (0, 255, 0), 1)
 
-    # --- Update ---
+
+while True:
+    # --- Updating ---
+
+    tick()
 
     pygame.display.update()
     clock.tick(fps)
-
-
-while True:
-    tick()
