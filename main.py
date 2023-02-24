@@ -4,32 +4,12 @@ import pygame
 
 
 class Line:
-    def __init__(self, pos1, pos2, x2=None, y2=None):
-        if x2 is None or y2 is None:
-            self.pos1 = pos1
-            self.pos2 = pos2
-        else:
-            self.pos1 = pos1, pos2
-            self.pos2 = x2, y2
+    def __init__(self, pos1, pos2):
+        self.pos1 = pos1
+        self.pos2 = pos2
 
     def draw(self, screen, color=(255, 255, 255), width=1):
         pygame.draw.line(screen, color, self.pos1, self.pos2, width)
-
-    def get_rect(self):
-        return pygame.Rect(self.pos1[0], self.pos1[1], self.pos2[0] - self.pos1[0], self.pos2[1] - self.pos1[1])
-
-    def get_near(self, pos) -> tuple[int, int]:
-        x1, y1 = self.pos1
-        x2, y2 = self.pos2
-        x, y = pos
-        if x1 == x2:
-            return x1, y
-        elif y1 == y2:
-            return x, y1
-        else:
-            m = (y2 - y1) / (x2 - x1)
-            b = y1 - m * x1
-            return (y - b) / m, y
 
     def get_intersection_with(self, other) -> tuple[tuple[float, float],
                                                     tuple[float, float] | None,
@@ -139,6 +119,8 @@ class LinearObject:
             line.draw(screen, self.color, self.width)
 
     def get_bounds(self) -> tuple[tuple[float, float], tuple[float, float]]:
+        if len(self._pos) == 0:
+            return (0, 0), (0, 0)
         x1, y1 = x2, y2 = self._pos[0]
         for pos in self._pos:
             x1 = min(x1, pos[0])
@@ -147,16 +129,9 @@ class LinearObject:
             y2 = max(y2, pos[1])
         return (x1, y1), (x2, y2)
 
-    def get_size(self) -> tuple[float, float]:
-        return self.get_bounds()[1][0] - self.get_bounds()[0][0], \
-               self.get_bounds()[1][1] - self.get_bounds()[0][1]
-
     def get_center(self) -> tuple[float, float]:
         return (self.get_bounds()[0][0] + self.get_bounds()[1][0]) / 2, \
                (self.get_bounds()[0][1] + self.get_bounds()[1][1]) / 2
-
-    def get_relative(self, pos) -> tuple[float, float]:
-        return pos[0] - self.get_bounds()[0][0], pos[1] - self.get_bounds()[0][1]
 
     def get_intersection_with(self, other) -> tuple[tuple[tuple[float, float],
                                                           tuple[float, float] | None,
@@ -165,14 +140,6 @@ class LinearObject:
             for line2 in other.lines:
                 if (inter := line.get_intersection_with(line2)) is not None:
                     return inter, line, line2
-        return None
-
-    def get_intersection_with_line(self, line) -> tuple[tuple[tuple[float, float],
-                                                              tuple[float, float] | None,
-                                                              tuple[float, float] | None], Line] | None:
-        for l in self.lines:
-            if (inter := l.get_intersection_with(line)) is not None:
-                return inter, l
         return None
 
 
@@ -195,63 +162,19 @@ class Utils:
         return math.sqrt((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2)
 
     @staticmethod
-    def get_angle(pos1, pos2) -> float:
-        return math.atan2(pos2[1] - pos1[1], pos2[0] - pos1[0])
-
-    @staticmethod
-    def get_angle_between(pos, pos1, pos2) -> float:
-        return Utils.get_angle(pos, pos1) - Utils.get_angle(pos, pos2)
-
-    @staticmethod
-    def get_angle_by_coef(alpha1, alpha2) -> float:
-        if alpha1 == alpha2 or (alpha1 is None and alpha2 is None):
-            return 0
-        add = 0
-        if alpha1 is None:
-            a1 = 0
-            add = math.pi / 2
-        else:
-            a1 = alpha1
-        if alpha2 is None:
-            a2 = 0
-            add = math.pi / 2
-        else:
-            a2 = alpha2
-        return math.atan((a1 - a2) / (1 + a1 * a2)) + add
-
-    @staticmethod
-    def minimize_angle(rad) -> float:
-        a = rad % (2 * math.pi)
-        if a > math.pi:
-            a -= 2 * math.pi
-        return a
-
-    @staticmethod
-    def positivize_angle(rad) -> float:
-        a = rad % (2 * math.pi)
-        if a < 0:
-            a += 2 * math.pi
-        return a
-
-    @staticmethod
     def get_magnitude(vec) -> float:
         return math.sqrt(vec[0] ** 2 + vec[1] ** 2)
 
     @staticmethod
     def set_magnitude(vec, magnitude: float) -> tuple[float, float]:
         if Utils.get_magnitude(vec) == 0:
-            return 1 / math.sqrt(2) * magnitude, \
-                   1 / math.sqrt(2) * magnitude
-        return vec[0] / Utils.get_magnitude(vec) * magnitude, \
-               vec[1] / Utils.get_magnitude(vec) * magnitude
+            return (1 / math.sqrt(2) * magnitude,
+                    1 / math.sqrt(2) * magnitude)
+        return (vec[0] / Utils.get_magnitude(vec) * magnitude,
+                vec[1] / Utils.get_magnitude(vec) * magnitude)
 
-    @staticmethod
-    def deg2rad(deg) -> float:
-        return deg * math.pi / 180
 
-    @staticmethod
-    def rad2deg(rad) -> float:
-        return rad * 180 / math.pi
+# --- Initializing ---
 
 pygame.init()
 
@@ -277,15 +200,15 @@ max_velocity = 300
 
 # --- Building ---
 
-# LinearObject((300, 200), (800, 200), (800, 400), (300, 400)).register()
-# LinearObject((83, 77), (956, 50), (958, 201), (227, 207), (237, 325), (942, 295), (942, 397), (931, 643), (788, 626), (844, 541), (804, 487), (803, 487), (802, 487), (802, 486), (840, 424), (692, 487), (514, 597), (552, 439), (393, 483), (295, 515), (165, 562), (81, 525), (81, 524), (98, 231), (182, 151), (509, 138), (886, 121), (102, 136)).register()
-
 levels = [
     Level(LinearObject.create_regular_polygon((285, 190), 20, 20, color=(255, 0, 0), width=1, fill=(0, 0, 255)),
           LinearObject.create_regular_polygon((740, 510), 20, 20, color=(0, 200, 0), fill=True),
-          LinearObject((240, 150), (600, 0), (0, 240), (-500, 0), (0, 80), (300, 0), (0, -40), (200, 0), (0, 160), (-200, 0), (0, -40), (-400, 0), (0, -240), (500, 0), (0, -80), (-500, 0), relative=True))
+          LinearObject((240, 150), (600, 0), (0, 240), (-500, 0), (0, 80), (300, 0), (0, -40), (200, 0), (0, 160),
+                       (-200, 0), (0, -40), (-400, 0), (0, -240), (500, 0), (0, -80), (-500, 0), relative=True))
 ]
 
+
+# --- Game ---
 
 def tick(level: Level):
     global position, velocity, is_moving
@@ -305,7 +228,7 @@ def tick(level: Level):
 
     position = position[0] + tempo_velocity[0], position[1] + tempo_velocity[1]
 
-    if 0 < Utils.get_magnitude(velocity) < 20:
+    if 0 < Utils.get_magnitude(velocity) < 5:
         velocity = 0, 0
         is_moving = False
 
@@ -314,11 +237,14 @@ def tick(level: Level):
     if not is_moving:
         mouse = pygame.mouse.get_pos()
         potential_velocity = (position[0] - mouse[0]) * 1.5, (position[1] - mouse[1]) * 1.5
+
         if Utils.get_magnitude(potential_velocity) > max_velocity:
             potential_velocity = Utils.set_magnitude(potential_velocity, max_velocity)
-        potential_point = (collider.get_center()[0] + potential_velocity[0],
-                           collider.get_center()[1] + potential_velocity[1])
+
+        potential_point = (collider.get_center()[0] + potential_velocity[0] * 0.5,
+                           collider.get_center()[1] + potential_velocity[1] * 0.5)
         Line(collider.get_center(), potential_point).draw(screen, (255, 0, 0))
+
         if pygame.mouse.get_pressed()[0]:
             is_moving = True
             velocity = velocity[0] + potential_velocity[0], velocity[1] + potential_velocity[1]
@@ -354,18 +280,15 @@ def tick(level: Level):
                 # Apply bounce friction
                 velocity = Utils.set_magnitude(velocity, Utils.get_magnitude(velocity) - bounce_friction)
 
-    print(velocity, Utils.get_magnitude(velocity), clock.get_fps())
-
     # --- Drawing ---
 
     screen.blit(ball, (position[0] - ball.get_rect().size[0] // 2,
                        position[1] - ball.get_rect().size[1] // 2))
-    collider.draw(screen)
 
     return False
 
 
-l = LinearObject()
+# l = LinearObject()
 while True:
     # --- Updating ---
     for event in pygame.event.get():
@@ -375,6 +298,7 @@ while True:
     if tick(levels[0]):
         break
 
+    # --- Testing > Level Building ---
     # if pygame.mouse.get_pressed()[2]:
     #     l._pos = []
     #     l.update_lines()
