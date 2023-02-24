@@ -92,44 +92,55 @@ class Line:
 
 
 class LinearObject:
-    objects = []
-
     @staticmethod
-    def create_regular_polygon(pos, radius: int, n: int = 20, offset_rad: int | float = 0):
+    def create_regular_polygon(pos, radius: int, n: int = 20, offset_rad: int | float = 0,
+                               color: tuple[int, int, int] = (255, 255, 255), width: int = 1,
+                               fill: bool | tuple[int, int, int] | None = None):
         return LinearObject(*[(pos[0] + radius * math.cos(2 * math.pi * i / n + offset_rad),
-                               pos[1] + radius * math.sin(2 * math.pi * i / n + offset_rad)) for i in range(n)])
+                               pos[1] + radius * math.sin(2 * math.pi * i / n + offset_rad)) for i in range(n)],
+                            color=color, width=width, fill=fill)
 
-    def __init__(self, pos0, *pos):
-        self.pos = [pos0]
+    def __init__(self, *pos: tuple[int | float, int | float], relative: bool = False,
+                 color: tuple[int, int, int] = (255, 255, 255), width: int = 1,
+                 fill: bool | tuple[int, int, int] | None = None):
+        self.color = color
+        self.width = width
+        self.fill = fill
+        current = 0, 0
+        self._pos = []
         for p in pos:
-            self.pos.append(p)
+            current = (current[0] + p[0], current[1] + p[1]) if relative else p
+            self._pos.append(current)
         self.lines: list[Line] = []
         self.update_lines()
 
-    def register(self):
-        if self not in LinearObject.objects:
-            LinearObject.objects.append(self)
-        return self
-
-    def unregister(self):
-        if self in LinearObject.objects:
-            LinearObject.objects.remove(self)
-        return self
+    def get_pos(self, relative: bool = False) -> list[tuple[float, float]]:
+        pos = []
+        old = 0, 0
+        for p in self._pos:
+            if relative:
+                pos.append((p[0] - old[0], p[1] - old[1]))
+                old = p
+            else:
+                pos.append(p)
+        return pos
 
     def update_lines(self):
         self.lines = []
-        for i in range(len(self.pos) - 1):
-            self.lines.append(Line(self.pos[i], self.pos[i + 1]))
-        if len(self.pos) > 2:
-            self.lines.append(Line(self.pos[-1], self.pos[0]))
+        for i in range(len(self._pos) - 1):
+            self.lines.append(Line(self._pos[i], self._pos[i + 1]))
+        if len(self._pos) > 2:
+            self.lines.append(Line(self._pos[-1], self._pos[0]))
 
-    def draw(self, screen, color=(255, 255, 255), width=1):
+    def draw(self, screen):
+        if self.fill is not None and self.fill is not False:
+            pygame.draw.polygon(screen, self.color if self.fill is True else self.fill, self._pos)
         for line in self.lines:
-            line.draw(screen, color, width)
+            line.draw(screen, self.color, self.width)
 
     def get_bounds(self) -> tuple[tuple[float, float], tuple[float, float]]:
-        x1, y1 = x2, y2 = self.pos[0]
-        for pos in self.pos:
+        x1, y1 = x2, y2 = self._pos[0]
+        for pos in self._pos:
             x1 = min(x1, pos[0])
             y1 = min(y1, pos[1])
             x2 = max(x2, pos[0])
@@ -163,6 +174,19 @@ class LinearObject:
             if (inter := l.get_intersection_with(line)) is not None:
                 return inter, l
         return None
+
+
+class Level:
+    def __init__(self, start: LinearObject, finish: LinearObject, *obstacles: LinearObject):
+        self.start = start
+        self.finish = finish
+        self.obstacles = obstacles
+
+    def draw(self, screen):
+        for obstacle in self.obstacles:
+            obstacle.draw(screen)
+        self.start.draw(screen)
+        self.finish.draw(screen)
 
 
 class Utils:
@@ -210,8 +234,16 @@ class Utils:
         return a
 
     @staticmethod
-    def get_magnitude(pos) -> float:
-        return math.sqrt(pos[0] ** 2 + pos[1] ** 2)
+    def get_magnitude(vec) -> float:
+        return math.sqrt(vec[0] ** 2 + vec[1] ** 2)
+
+    @staticmethod
+    def set_magnitude(vec, magnitude: float) -> tuple[float, float]:
+        if Utils.get_magnitude(vec) == 0:
+            return 1 / math.sqrt(2) * magnitude, \
+                   1 / math.sqrt(2) * magnitude
+        return vec[0] / Utils.get_magnitude(vec) * magnitude, \
+               vec[1] / Utils.get_magnitude(vec) * magnitude
 
     @staticmethod
     def deg2rad(deg) -> float:
@@ -220,13 +252,6 @@ class Utils:
     @staticmethod
     def rad2deg(rad) -> float:
         return rad * 180 / math.pi
-
-    @staticmethod
-    def are_close(num1, num2) -> bool:
-        return abs(num1 - num2) < 0.0001
-
-
-LinearObject.objects: list[LinearObject] = []
 
 pygame.init()
 
@@ -239,20 +264,36 @@ fps = 200
 ball = pygame.image.load("ball.png").convert_alpha()
 ball = pygame.transform.rotozoom(ball, 0, 0.25)  # rotate: 0°, scale: x0.25
 
-friction = 0.5
+# --- Physics ---
 
-position = 350, 300
-velocity = -200, 250
+friction = 0.7
+bounce_friction = 7
 
-LinearObject((300, 200), (800, 200), (800, 400), (300, 400)).register()
+position = 285, 190
+velocity = 0, 0
+
+is_moving = False
+max_velocity = 300
+
+# --- Building ---
+
+# LinearObject((300, 200), (800, 200), (800, 400), (300, 400)).register()
+# LinearObject((83, 77), (956, 50), (958, 201), (227, 207), (237, 325), (942, 295), (942, 397), (931, 643), (788, 626), (844, 541), (804, 487), (803, 487), (802, 487), (802, 486), (840, 424), (692, 487), (514, 597), (552, 439), (393, 483), (295, 515), (165, 562), (81, 525), (81, 524), (98, 231), (182, 151), (509, 138), (886, 121), (102, 136)).register()
+
+levels = [
+    Level(LinearObject.create_regular_polygon((285, 190), 20, 20, color=(255, 0, 0), width=1, fill=(0, 0, 255)),
+          LinearObject.create_regular_polygon((740, 510), 20, 20, color=(0, 200, 0), fill=True),
+          LinearObject((240, 150), (600, 0), (0, 240), (-500, 0), (0, 80), (300, 0), (0, -40), (200, 0), (0, 160), (-200, 0), (0, -40), (-400, 0), (0, -240), (500, 0), (0, -80), (-500, 0), relative=True))
+]
 
 
-def tick():
-    global position, velocity
+def tick(level: Level):
+    global position, velocity, is_moving
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            sys.exit()
+    # --- Drawing ---
+
+    screen.fill((0, 0, 0))
+    level.draw(screen)
 
     # --- Logic ---
 
@@ -264,12 +305,30 @@ def tick():
 
     position = position[0] + tempo_velocity[0], position[1] + tempo_velocity[1]
 
-    if Utils.get_magnitude(velocity) < 3:
+    if 0 < Utils.get_magnitude(velocity) < 20:
         velocity = 0, 0
+        is_moving = False
 
-    collider = LinearObject.create_regular_polygon(position, 17, 6, math.pi / 6)
+    collider = LinearObject.create_regular_polygon(position, 17, 20, math.pi / 6, color=(0, 255, 0))
+
+    if not is_moving:
+        mouse = pygame.mouse.get_pos()
+        potential_velocity = (position[0] - mouse[0]) * 1.5, (position[1] - mouse[1]) * 1.5
+        if Utils.get_magnitude(potential_velocity) > max_velocity:
+            potential_velocity = Utils.set_magnitude(potential_velocity, max_velocity)
+        potential_point = (collider.get_center()[0] + potential_velocity[0],
+                           collider.get_center()[1] + potential_velocity[1])
+        Line(collider.get_center(), potential_point).draw(screen, (255, 0, 0))
+        if pygame.mouse.get_pressed()[0]:
+            is_moving = True
+            velocity = velocity[0] + potential_velocity[0], velocity[1] + potential_velocity[1]
+
+    if Utils.get_distance(collider.get_center(), level.finish.get_center()) < 5:
+        print("Finished!")
+        return True
+
     if velocity[0] != 0:
-        for obj in LinearObject.objects:
+        for obj in level.obstacles:
             if (i := collider.get_intersection_with(obj)) is not None:
                 position = back
 
@@ -282,33 +341,55 @@ def tick():
                 a = (math.pi / 2) if i[0][2] is None else math.atan(i[0][2][0])
 
                 # Q * velocity = (vx * cos a + vy * sin a, -vx * sin a + vy * cos a)
-                relative_velocity = velocity[0] * math.cos(a) + velocity[1] * math.sin(a), \
-                                    -velocity[0] * math.sin(a) + velocity[1] * math.cos(a)
+                relative_velocity = (velocity[0] * math.cos(a) + velocity[1] * math.sin(a),
+                                     -velocity[0] * math.sin(a) + velocity[1] * math.cos(a))
 
                 # relative_velocity * P => (vx, -vy)
                 relative_velocity = relative_velocity[0], -relative_velocity[1]
 
                 # reflection = relative_velocity * Q^(-1)
-                velocity = relative_velocity[0] * math.cos(a) - relative_velocity[1] * math.sin(a), \
-                           relative_velocity[0] * math.sin(a) + relative_velocity[1] * math.cos(a)
+                velocity = (relative_velocity[0] * math.cos(a) - relative_velocity[1] * math.sin(a),
+                            relative_velocity[0] * math.sin(a) + relative_velocity[1] * math.cos(a))
 
-    print(velocity, clock.get_fps())
+                # Apply bounce friction
+                velocity = Utils.set_magnitude(velocity, Utils.get_magnitude(velocity) - bounce_friction)
+
+    print(velocity, Utils.get_magnitude(velocity), clock.get_fps())
 
     # --- Drawing ---
 
-    screen.fill((0, 0, 0))
-
     screen.blit(ball, (position[0] - ball.get_rect().size[0] // 2,
                        position[1] - ball.get_rect().size[1] // 2))
+    collider.draw(screen)
 
-    LinearObject.objects[0].draw(screen, (0, 255, 255), 2)
-    # collider.draw(screen, (0, 255, 0), 1)
+    return False
 
 
+l = LinearObject()
 while True:
     # --- Updating ---
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            sys.exit()
 
-    tick()
+    if tick(levels[0]):
+        break
+
+    # if pygame.mouse.get_pressed()[2]:
+    #     l._pos = []
+    #     l.update_lines()
+    #
+    # if pygame.mouse.get_pressed()[0]:
+    #     if pygame.mouse.get_pos() not in l._pos:
+    #         l._pos.append(pygame.mouse.get_pos())
+    #         l.update_lines()
+    #
+    # print(l._pos)
+    #
+    # screen.fill((0, 0, 0))
+    # l.draw(screen, (0, 255, 255), 2)
+    #
+    # LinearObject.objects[0].draw(screen, (0, 255, 255), 2)
 
     pygame.display.update()
     clock.tick(fps)
