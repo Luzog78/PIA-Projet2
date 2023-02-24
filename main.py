@@ -73,7 +73,7 @@ class Line:
 
 class LinearObject:
     @staticmethod
-    def create_regular_polygon(pos, radius: int, n: int = 20, offset_rad: int | float = 0,
+    def create_regular_polygon(pos, radius: int, n: int, offset_rad: int | float = 0,
                                color: tuple[int, int, int] = (255, 255, 255), width: int = 1,
                                fill: bool | tuple[int, int, int] | None = None):
         return LinearObject(*[(pos[0] + radius * math.cos(2 * math.pi * i / n + offset_rad),
@@ -133,7 +133,8 @@ class LinearObject:
 
 
 class Level:
-    def __init__(self, start: LinearObject, finish: LinearObject, *obstacles: LinearObject):
+    def __init__(self, name: str, start: LinearObject, finish: LinearObject, *obstacles: LinearObject):
+        self.name = name
         self.start = start
         self.finish = finish
         self.obstacles = obstacles
@@ -167,52 +168,152 @@ class Utils:
 
 pygame.init()
 
-size = 1080, 720
+SIZE = 1080, 720
 
-screen = pygame.display.set_mode(size)
-clock = pygame.time.Clock()
-fps = 200
+SCREEN = pygame.display.set_mode(SIZE)
+CLOCK = pygame.time.Clock()
+FPS = 200
 
-ball = pygame.image.load("ball.png").convert_alpha()
-ball = pygame.transform.rotozoom(ball, 0, 0.25)  # rotate: 0°, scale: x0.25
+BALL = pygame.image.load("ball.png").convert_alpha()
+BALL = pygame.transform.rotozoom(BALL, 0, 0.25)  # rotate: 0°, scale: x0.25
 
-# --- Physics ---
+BACKGROUND = pygame.image.load("texture.png").convert_alpha()
 
-friction = 0.7
-bounce_friction = 7
+FONT = pygame.font.SysFont("Arial", 30)
 
-position = 285, 190
+# --- Physics & Game Variables ---
+
+FRICTION = 0.7
+BOUNCE_FRICTION = 7
+
+position = 0, 0
 velocity = 0, 0
 
 is_moving = False
-max_velocity = 300
+MAX_VELOCITY = 300
+
+current_game = 0
+chrono = 0
+moves = 0
 
 # --- Building ---
 
 levels = [
-    Level(LinearObject.create_regular_polygon((285, 190), 20, 20, color=(255, 0, 0), width=1, fill=(0, 0, 255)),
-          LinearObject.create_regular_polygon((740, 510), 20, 20, color=(0, 200, 0), fill=True),
+    Level("Niveau 1",
+          LinearObject.create_regular_polygon((285, 190), 20, 20, color=(255, 0, 0), width=1, fill=(0, 0, 255)),
+          LinearObject.create_regular_polygon((740, 510), 20, 20, color=(0, 0, 0), fill=(200, 200, 0)),
           LinearObject((240, 150), (600, 0), (0, 240), (-500, 0), (0, 80), (300, 0), (0, -40), (200, 0), (0, 160),
-                       (-200, 0), (0, -40), (-400, 0), (0, -240), (500, 0), (0, -80), (-500, 0), relative=True))
+                       (-200, 0), (0, -40), (-400, 0), (0, -240), (500, 0), (0, -80), (-500, 0), relative=True)),
+    Level("Niveau 2",
+          LinearObject.create_regular_polygon((285, 190), 20, 20, color=(255, 0, 0), width=1, fill=(0, 0, 255)),
+          LinearObject.create_regular_polygon((740, 510), 20, 20, color=(0, 0, 0), fill=(200, 200, 0)),
+          LinearObject((240, 150), (200, 0), (0, -30), (200, 0), (0, 30), (200, 0),
+                       (0, 240), (-200, 0), (0, 30), (-200, 0), (0, -30), (-100, 0),
+                       (0, 80), (100, 0), (0, -20), (200, 0), (0, -20), (200, 0), (0, 160),
+                       (-200, 0), (0, -20), (-200, 0), (0, -20), (-200, 0), (0, -240),
+                       (200, 0), (0, -30), (200, 0), (0, 30), (100, 0), (0, -80),
+                       (-100, 0), (0, 30), (-200, 0), (0, -30), (-200, 0), relative=True),
+          LinearObject.create_regular_polygon((540, 190), 15, 3, color=(0, 128, 255), fill=True),
+          LinearObject.create_regular_polygon((540, 350), 15, 5, color=(0, 128, 255), fill=True),
+          LinearObject.create_regular_polygon((540, 510), 15, 6, color=(0, 128, 255), fill=True))
 ]
 
 
 # --- Game ---
 
+def testing_build():
+    obj = LinearObject(color=(0, 255, 255), width=2)
+    while True:
+        # --- Updating ---
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                sys.exit()
+
+        # --- Testing > Level Building ---
+        if pygame.mouse.get_pressed()[2]:
+            obj._pos = []
+            obj.update_lines()
+
+        if pygame.mouse.get_pressed()[0]:
+            if pygame.mouse.get_pos() not in obj._pos:
+                obj._pos.append(pygame.mouse.get_pos())
+                obj.update_lines()
+
+        print(obj._pos)
+
+        SCREEN.fill((0, 0, 0))
+        obj.draw(SCREEN)
+
+        LinearObject.create_regular_polygon((540, 190), 12, 3, color=(0, 0, 255), fill=True).draw(SCREEN)
+        LinearObject.create_regular_polygon((540, 350), 12, 5, color=(0, 0, 255), fill=True).draw(SCREEN)
+        LinearObject.create_regular_polygon((540, 510), 12, 6, color=(0, 0, 255), fill=True).draw(SCREEN)
+
+        pygame.display.update()
+        CLOCK.tick(FPS)
+
+
+def play(game: int = 0):
+    global levels, position, current_game, chrono, moves, is_moving, velocity
+
+    current_game = game
+    chrono = 0
+    moves = 0
+    position = levels[current_game].start.get_center()
+    velocity = 0, 0
+    is_moving = False
+
+    while True:
+        # --- Updating ---
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                sys.exit()
+
+        if current_game != -1 and tick(levels[current_game]):
+            current_game += 1
+
+            if len(levels) == current_game:
+                print("You won !")
+                current_game = -1
+
+                font = pygame.font.SysFont("Arial", 100)
+                text = font.render("Bravo !", True, (255, 255, 255))
+                text2 = FONT.render("Temps : ", True, (255, 255, 255))
+                text3 = FONT.render(f"{chrono:.1f} sec", True, (96, 96, 255))
+                text4 = FONT.render("Mvts : ", True, (255, 255, 255))
+                text5 = FONT.render(f"{moves}", True, (96, 255, 255))
+
+                SCREEN.blit(text, (SIZE[0] / 2 - text.get_size()[0] / 2, SIZE[1] / 2 - text.get_size()[1] / 2))
+                SCREEN.blit(text2, (15, 50))
+                SCREEN.blit(text4, (15, 85))
+                tab = max(text2.get_rect().size[0], text4.get_rect().size[0])
+                SCREEN.blit(text3, (25 + tab, 50))
+                SCREEN.blit(text5, (25 + tab, 85))
+
+            else:
+                position = levels[current_game].start.get_center()
+                velocity = 0, 0
+                is_moving = False
+
+        pygame.display.update()
+        CLOCK.tick(FPS)
+
+
 def tick(level: Level):
-    global position, velocity, is_moving
+    global position, velocity, is_moving, moves, chrono
 
     # --- Drawing ---
 
-    screen.fill((0, 0, 0))
-    level.draw(screen)
+    for x in range(-100, SIZE[0] + BACKGROUND.get_size()[0], BACKGROUND.get_size()[0]):
+        for y in range(-100, SIZE[1] + BACKGROUND.get_size()[1], BACKGROUND.get_size()[1]):
+            SCREEN.blit(BACKGROUND, (x, y))
+    level.draw(SCREEN)
 
     # --- Logic ---
 
     back = position[:]
 
     # Damping with friction
-    velocity = velocity[0] * (1 - friction / fps), velocity[1] * (1 - friction / fps)
+    velocity = velocity[0] * (1 - FRICTION / FPS), velocity[1] * (1 - FRICTION / FPS)
     tempo_velocity = velocity[0] / 100, velocity[1] / 100
 
     position = position[0] + tempo_velocity[0], position[1] + tempo_velocity[1]
@@ -221,25 +322,29 @@ def tick(level: Level):
         velocity = 0, 0
         is_moving = False
 
-    collider = LinearObject.create_regular_polygon(position, 17, 20, math.pi / 6, color=(0, 255, 0))
+    collider = LinearObject.create_regular_polygon(position, 17, 50, math.pi / 6, color=(0, 255, 0))
 
     if not is_moving:
         mouse = pygame.mouse.get_pos()
         potential_velocity = (position[0] - mouse[0]) * 1.5, (position[1] - mouse[1]) * 1.5
 
-        if Utils.get_magnitude(potential_velocity) > max_velocity:
-            potential_velocity = Utils.set_magnitude(potential_velocity, max_velocity)
+        if Utils.get_magnitude(potential_velocity) > MAX_VELOCITY:
+            potential_velocity = Utils.set_magnitude(potential_velocity, MAX_VELOCITY)
 
         potential_point = (collider.get_center()[0] + potential_velocity[0] * 0.5,
                            collider.get_center()[1] + potential_velocity[1] * 0.5)
-        Line(collider.get_center(), potential_point).draw(screen, (255, 0, 0))
+        Line(collider.get_center(), potential_point).draw(SCREEN, (255, 0, 0))
 
         if pygame.mouse.get_pressed()[0]:
+            moves += 1
             is_moving = True
-            velocity = velocity[0] + potential_velocity[0], velocity[1] + potential_velocity[1]
+            velocity = potential_velocity[0], potential_velocity[1]
 
-    if Utils.get_distance(collider.get_center(), level.finish.get_center()) < 5:
+    if Utils.get_distance(collider.get_center(), level.finish.get_center()) < 8:
         print("Finished!")
+        for x in range(-100, SIZE[0] + BACKGROUND.get_size()[0], BACKGROUND.get_size()[0]):
+            for y in range(-100, SIZE[1] + BACKGROUND.get_size()[1], BACKGROUND.get_size()[1]):
+                SCREEN.blit(BACKGROUND, (x, y))
         return True
 
     if velocity[0] != 0:
@@ -267,42 +372,35 @@ def tick(level: Level):
                             relative_velocity[0] * math.sin(a) + relative_velocity[1] * math.cos(a))
 
                 # Apply bounce friction
-                velocity = Utils.set_magnitude(velocity, Utils.get_magnitude(velocity) - bounce_friction)
+                velocity = Utils.set_magnitude(velocity, Utils.get_magnitude(velocity) - BOUNCE_FRICTION)
 
     # --- Drawing ---
 
-    screen.blit(ball, (position[0] - ball.get_rect().size[0] // 2,
-                       position[1] - ball.get_rect().size[1] // 2))
+    SCREEN.blit(BALL, (position[0] - BALL.get_rect().size[0] // 2,
+                       position[1] - BALL.get_rect().size[1] // 2))
+
+    text1 = FONT.render(f"[ {level.name} ]", True, (255, 255, 255))
+    text2 = FONT.render("Temps : ", True, (255, 255, 255))
+    text3 = FONT.render(f"{chrono:.1f} sec", True, (96, 96, 255))
+    text4 = FONT.render("Mvts : ", True, (255, 255, 255))
+    text5 = FONT.render(f"{moves}", True, (96, 255, 255))
+    text6 = FONT.render(f"Vitesse : ", True, (255, 255, 255))
+    text7 = FONT.render(f"{int(Utils.get_magnitude(velocity))}", True, (255, 96, 255))
+    text8 = FONT.render(f"FPS : {int(CLOCK.get_fps())}", True, (128, 128, 128))
+
+    SCREEN.blit(text1, (15, 15))
+    SCREEN.blit(text2, (15, 50))
+    SCREEN.blit(text4, (15, 85))
+    SCREEN.blit(text6, (15, 120))
+    tab = max(text2.get_rect().size[0], text4.get_rect().size[0], text6.get_rect().size[0])
+    SCREEN.blit(text3, (25 + tab, 50))
+    SCREEN.blit(text5, (25 + tab, 85))
+    SCREEN.blit(text7, (25 + tab, 120))
+    SCREEN.blit(text8, (SIZE[0] - text8.get_rect().size[0] - 15, 15))
+
+    chrono += 1 / FPS
 
     return False
 
 
-# l = LinearObject()
-while True:
-    # --- Updating ---
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            sys.exit()
-
-    if tick(levels[0]):
-        break
-
-    # --- Testing > Level Building ---
-    # if pygame.mouse.get_pressed()[2]:
-    #     l._pos = []
-    #     l.update_lines()
-    #
-    # if pygame.mouse.get_pressed()[0]:
-    #     if pygame.mouse.get_pos() not in l._pos:
-    #         l._pos.append(pygame.mouse.get_pos())
-    #         l.update_lines()
-    #
-    # print(l._pos)
-    #
-    # screen.fill((0, 0, 0))
-    # l.draw(screen, (0, 255, 255), 2)
-    #
-    # LinearObject.objects[0].draw(screen, (0, 255, 255), 2)
-
-    pygame.display.update()
-    clock.tick(fps)
+play()
