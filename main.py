@@ -94,17 +94,6 @@ class LinearObject:
         self.lines: list[Line] = []
         self.update_lines()
 
-    def get_pos(self, relative: bool = False) -> list[tuple[float, float]]:
-        pos = []
-        old = 0, 0
-        for p in self._pos:
-            if relative:
-                pos.append((p[0] - old[0], p[1] - old[1]))
-                old = p
-            else:
-                pos.append(p)
-        return pos
-
     def update_lines(self):
         self.lines = []
         for i in range(len(self._pos) - 1):
